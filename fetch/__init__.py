@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from shutil import make_archive
 from tempfile import TemporaryDirectory
 from typing import Tuple
 
@@ -47,7 +48,7 @@ def daily_decisions(date: datetime.date) -> Tuple[str, str]:
         "size": query_size,
         "page": 0,
     }
-
+    decision_idx = 0
     while True:
         response = requests.get(
             api_url, params=params, auth=AUTH, headers=headers, verify=False
@@ -59,19 +60,17 @@ def daily_decisions(date: datetime.date) -> Tuple[str, str]:
         params["page"] += 1
 
         for dec in response.json()["decisions"]:
+            decision_idx += 1
             LOGGER.info(
-                f"Page {params['page']}/{total_size // page_size}. "
+                f"Page {params['page']}/{total_size // page_size + 1:,d}. "
+                f"Result {decision_idx}/{total_size + 1:,d}. "
                 f"ADA:{dec['ada']!r}"
             )
             yield dec["ada"], dec["url"]
 
 
-def fetch_daily_diavgeia(date: datetime.date):
+def fetch_daily_diavgeia(date: datetime.date, export_root: Path):
     """ Fetches all documents from diavgeia for a given date """
-
-    export_root = Path(TemporaryDirectory().name) / date.isoformat()
-    LOGGER.info(f"Getting all decisions for: {date.isoformat()}")
-    LOGGER.info(f"Export directory: {export_root}")
 
     for decision_ada, decision_url in daily_decisions(date):
         decision = requests.get(decision_url, auth=AUTH, verify=False).json()
@@ -100,4 +99,15 @@ def main():
         type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d").date(),
     )
     args = parser.parse_args()
-    fetch_daily_diavgeia(args.date)
+
+    export_root = Path(TemporaryDirectory().name) / args.date.isoformat()
+    export_archive = f"{export_root}.zip"
+    LOGGER.info(f"Getting all decisions for: {args.date.isoformat()}")
+    LOGGER.info(f"Export directory: '{export_root}'")
+    LOGGER.info(f"Export archive: '{export_archive}'")
+
+    fetch_daily_diavgeia(args.date, export_root)
+    LOGGER.info(f"Finished fetching")
+
+    make_archive(f"{export_archive}", "zip", root_dir=f"{export_root}")
+    LOGGER.info(f"Finished archive")
