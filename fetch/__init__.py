@@ -11,6 +11,8 @@ from typing import Tuple
 
 import requests
 import urllib3
+from b2sdk.account_info import InMemoryAccountInfo
+from b2sdk.api import B2Api
 from dotenv import find_dotenv, load_dotenv
 from requests.auth import HTTPBasicAuth
 
@@ -29,6 +31,9 @@ LOGGER = logging.getLogger("diavgeia.fetch")
 AUTH = HTTPBasicAuth(
     username=os.environ["API_USER"], password=os.environ["API_PASSWORD"]
 )
+BUCKET_NAME = os.environ["BUCKET_NAME"]
+B2_KEY_ID = os.environ["B2_KEY_ID"]
+B2_KEY = os.environ["B2_KEY"]
 
 
 def daily_decisions(date: datetime.date) -> Tuple[str, str]:
@@ -88,6 +93,17 @@ def fetch_daily_diavgeia(date: datetime.date, export_root: Path):
             LOGGER.info(f"Exported: {pdf_filepath}")
 
 
+def upload_to_b2(filepath: Path):
+    """ Uploads a local file to B2 bucket """
+
+    b2_api = B2Api(InMemoryAccountInfo())
+    b2_api.authorize_account("production", B2_KEY_ID, B2_KEY)
+    bucket = b2_api.get_bucket_by_name(BUCKET_NAME)
+    bucket.upload_local_file(
+        file_name=f"sink/{filepath.name}", local_file=f"{filepath}"
+    )
+
+
 def main():
     """ Main function """
     description = ""
@@ -101,13 +117,17 @@ def main():
     args = parser.parse_args()
 
     export_root = Path(TemporaryDirectory().name) / args.date.isoformat()
-    export_archive = f"{export_root}.zip"
-    LOGGER.info(f"Getting all decisions for: {args.date.isoformat()}")
-    LOGGER.info(f"Export directory: '{export_root}'")
-    LOGGER.info(f"Export archive: '{export_archive}'")
-
+    export_archive = export_root.with_suffix(".zip")
+    LOGGER.info(f"Fetching all decisions for: {args.date.isoformat()!r}...")
     fetch_daily_diavgeia(args.date, export_root)
-    LOGGER.info(f"Finished fetching")
+    LOGGER.info(f"Fetching finished.")
 
-    make_archive(f"{export_archive}", "zip", root_dir=f"{export_root}")
-    LOGGER.info(f"Finished archive")
+    LOGGER.info(f"Compressing archive '{export_root}'...")
+    make_archive(f"{export_root}", "zip", root_dir=f"{export_root}")
+    LOGGER.info(f"Compressing finished.")
+
+    LOGGER.info(f"Upload archive '{export_archive}'...")
+    upload_to_b2(export_archive)
+    LOGGER.info(f"Upload finished.")
+
+    LOGGER.info(f"Finished successfully")
