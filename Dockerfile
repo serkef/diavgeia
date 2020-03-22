@@ -20,3 +20,4 @@ USER ${APP_USER}
 
 # Run
 ENTRYPOINT ["diavgeia-daily"]
+CMD []
