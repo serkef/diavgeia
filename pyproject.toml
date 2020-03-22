@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "diavgeia"
+version = "0.1.0"
+description = "A set of scripts to fetch, backup and mirror diavgeia.gov.gr"
+authors = ["Sergio Kef <sergiokef@gmail.com>"]
+license = "Apache-2.0"
+packages = [{include = "fetch"}]
+repository = "https://github.com/serkef/diavgeia"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+python-dotenv = "^0.12.0"
+
+[tool.poetry.scripts]
+diavgeia-daily = "fetch:main"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.4.1"
+isort = "^4.3.21"
+flake8 = "^3.7.9"
+seed-isort-config = "^2.1.0"
+black = "^19.10b0"
+pylint = "^2.4.4"
+pre-commit = "^2.2.0"
+
+[build-system]
+requires = ["poetry>=1.0.5"]
+build-backend = "poetry.masonry.api"
