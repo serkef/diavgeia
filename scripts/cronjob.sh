@@ -1,7 +1,8 @@
 #!/bin/bash
 
 BUILD_TAG=$(git rev-parse HEAD)
-CRON_CMD='1 0 * * *	docker run --name diavgeia-daily --rm --env-file='$HOME'/diavgeia/PRODUCTION/diavgeia/.env --restart on-failure diavgeia-daily:'${BUILD_TAG}' --date $(date -I)'
+CRON_CMD='1 0 * * *	docker run --name diavgeia-daily --env-file='$HOME'/diavgeia/diavgeia/.env --restart on-failure diavgeia-daily:'${BUILD_TAG}' --date $(date -d "yesterday" -I)'
+
 
 echo
 echo "Current crontab"
