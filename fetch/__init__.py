@@ -109,25 +109,43 @@ def main():
     description = ""
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
-        "--date",
+        "--from_date",
         help="Date to fetch documents for. Format: YYYY-MM-DD",
         required=True,
         type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d").date(),
     )
+    parser.add_argument(
+        "--to_date",
+        help="Date to fetch documents for. Format: YYYY-MM-DD",
+        required=False,
+        type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d").date(),
+    )
     args = parser.parse_args()
 
-    export_root = Path(TemporaryDirectory().name) / args.date.isoformat()
-    export_archive = export_root.with_suffix(".zip")
-    LOGGER.info(f"Fetching all decisions for: {args.date.isoformat()!r}...")
-    fetch_daily_diavgeia(args.date, export_root)
-    LOGGER.info(f"Fetching finished.")
+    date = args.from_date
+    to_date = args.to_date or date + datetime.timedelta(days=1)
 
-    LOGGER.info(f"Compressing archive '{export_root}'...")
-    make_archive(f"{export_root}", "zip", root_dir=f"{export_root}")
-    LOGGER.info(f"Compressing finished.")
+    if date >= to_date:
+        LOGGER.warning(
+            f"{date.isoformat()} is greater or equal than {to_date.isoformat()}. "
+            f"No data will be fetched."
+        )
 
-    LOGGER.info(f"Upload archive '{export_archive}'...")
-    upload_to_b2(export_archive)
-    LOGGER.info(f"Upload finished.")
+    while date < to_date:
+        export_root = Path(TemporaryDirectory().name) / date.isoformat()
+        export_archive = export_root.with_suffix(".zip")
+        LOGGER.info(f"Fetching all decisions for: {date.isoformat()!r}...")
+        fetch_daily_diavgeia(date, export_root)
+        LOGGER.info(f"Fetching finished.")
+
+        LOGGER.info(f"Compressing archive '{export_root}'...")
+        make_archive(f"{export_root}", "zip", root_dir=f"{export_root}")
+        LOGGER.info(f"Compressing finished.")
+
+        LOGGER.info(f"Upload archive '{export_archive}'...")
+        upload_to_b2(export_archive)
+        LOGGER.info(f"Upload finished.")
+
+        date += datetime.timedelta(days=1)
 
     LOGGER.info(f"Finished successfully")
