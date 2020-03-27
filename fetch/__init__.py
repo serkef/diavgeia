@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from shutil import make_archive
+from shutil import make_archive, rmtree
 from tempfile import TemporaryDirectory
 from typing import Tuple
 
@@ -145,6 +145,7 @@ def main():
         LOGGER.info(f"Upload archive '{export_archive}'...")
         upload_to_b2(export_archive)
         LOGGER.info(f"Upload finished.")
+        rmtree(export_root.parent)
 
         date += datetime.timedelta(days=1)
 
