@@ -139,7 +139,7 @@ disable=print-statement,
         deprecated-sys-function,
         exception-escape,
         comprehension-escape,
-        W1203,W1202,E0401,C0412
+        W1203,W1202,E0401,C0412,R0902
 
 # Enable the message, report, category or checker with the given id(s). You can
 # either give multiple identifier separated by comma (,) or put this option

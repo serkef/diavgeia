@@ -40,19 +40,21 @@ class DiavgeiaDailyFetch:
         :param date: Date for which documents will be fetched
         :param workers: Number of concurrent downloads
         """
-        log_filename = f"diavgeia.{date.isoformat()}.log"
-        self.logger = get_logger("DiavgeiaDailyFetch", log_filename)
+
+        self.date_str = date.isoformat()
         self.date = date
+        log_filename = f"diavgeia.{self.date_str}.log"
+        self.logger = get_logger(f"DiavgeiaDailyFetch.{self.date_str}", log_filename)
         self.workers = workers
         self.export_root = Path(TemporaryDirectory().name)
-        self.export_dir = self.export_root / date.isoformat()
+        self.export_dir = self.export_root / self.date_str
         self.export_archive = self.export_dir.with_suffix(".zip")
         self.decision_queue = None
 
     def execute(self):
         """ Runs the pipeline"""
 
-        self.logger.info(f"Fetching all decisions for: {self.date.isoformat()!r}...")
+        self.logger.info(f"Fetching all decisions for: {self.date_str!r}...")
         asyncio.run(self.fetch_daily())
         self.logger.info(f"Fetching finished.")
         if not self.export_dir.exists():
@@ -88,7 +90,7 @@ class DiavgeiaDailyFetch:
     async def get_meta(self, session):
         """ Iterates through all decisions of a day """
 
-        from_date = self.date.isoformat()
+        from_date = self.date_str
         to_date = (self.date + datetime.timedelta(days=1)).isoformat()
         api_url = "https://diavgeia.gov.gr/opendata/search"
 
@@ -248,6 +250,41 @@ def main():
         fetcher.execute()
         date += datetime.timedelta(days=1)
 
+
+# import backoff
+# import requests
+# from requests.auth import HTTPBasicAuth
+# def main2():
+#     auth = HTTPBasicAuth(
+#         username=os.environ["API_USER"], password=os.environ["API_PASSWORD"]
+#     )
+#     # 1975-04-11: 38,343,606 decisions.
+#     # 2010-10-01: 34 decisions.
+#     date = datetime.date(2010, 11, 1)
+#     while True:
+#
+#         from_date = date_str
+#         to_date = (date + datetime.timedelta(days=1)).isoformat()
+#         api_url = "https://diavgeia.gov.gr/opendata/search"
+#
+#         query_size = 500
+#
+#         headers = {"Accept": "application/json", "Connection": "Keep-Alive"}
+#
+#         params = {
+#             "from_date": from_date,
+#             "to_date": to_date,
+#             "size": query_size,
+#             "page": 0,
+#         }
+#         decision_idx = 0
+#         response = requests.get(
+#             api_url, params=params, auth=auth, headers=headers, verify=False
+#         )
+#         print(f"{date_str}: {response.json()['info']['total']:,d} decisions.")
+#
+#         date -= datetime.timedelta(days=1)
+#     pass
 
 if __name__ == "__main__":
     main()
