@@ -35,13 +35,15 @@ B2_KEY = os.environ["B2_KEY"]
 class DiavgeiaDailyFetch:
     """ Class that fetches diavgeia documents for a day """
 
-    def __init__(self, date: datetime.date):
+    def __init__(self, date: datetime.date, workers: int):
         """
         :param date: Date for which documents will be fetched
+        :param workers: Number of concurrent downloads
         """
         log_filename = f"diavgeia.{date.isoformat()}.log"
         self.logger = get_logger("DiavgeiaDailyFetch", log_filename)
         self.date = date
+        self.workers = workers
         self.export_root = Path(TemporaryDirectory().name)
         self.export_dir = self.export_root / date.isoformat()
         self.export_archive = self.export_dir.with_suffix(".zip")
@@ -73,12 +75,13 @@ class DiavgeiaDailyFetch:
 
         self.decision_queue = asyncio.Queue()
         async with aiohttp.ClientSession() as session:
+            downloaders = [
+                asyncio.create_task(self.download(str(i), session))
+                for i in range(self.workers)
+            ]
             await asyncio.gather(
                 asyncio.create_task(self.get_meta(session)),
-                asyncio.create_task(self.download("A", session)),
-                asyncio.create_task(self.download("B", session)),
-                asyncio.create_task(self.download("C", session)),
-                asyncio.create_task(self.download("D", session)),
+                *downloaders,
                 asyncio.create_task(self.monitor()),
             )
 
@@ -202,6 +205,12 @@ class DiavgeiaDailyFetch:
 def main():
     """ Main function """
 
+    def validate_number_of_workers(workers):
+        workers = int(workers)
+        if 1 <= workers <= 100:
+            return workers
+        raise argparse.ArgumentTypeError("Number of workers can be 1-100")
+
     description = ""
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
@@ -216,6 +225,13 @@ def main():
         required=False,
         type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d").date(),
     )
+    parser.add_argument(
+        "--workers",
+        help="Number of workers (1-100). Defaults to 4.",
+        required=False,
+        default=4,
+        type=validate_number_of_workers,
+    )
     args = parser.parse_args()
 
     date = args.from_date
@@ -228,7 +244,7 @@ def main():
         )
 
     while date < to_date:
-        fetcher = DiavgeiaDailyFetch(date)
+        fetcher = DiavgeiaDailyFetch(date, args.workers)
         fetcher.execute()
         date += datetime.timedelta(days=1)
 
