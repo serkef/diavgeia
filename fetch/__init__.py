@@ -12,7 +12,7 @@ from tempfile import TemporaryDirectory
 
 import aiohttp
 import urllib3
-from aiohttp import BasicAuth, ClientPayloadError
+from aiohttp import BasicAuth, ClientConnectorError, ClientPayloadError
 from b2sdk.account_info import InMemoryAccountInfo
 from b2sdk.api import B2Api
 from dotenv import find_dotenv, load_dotenv
@@ -162,8 +162,15 @@ class DiavgeiaDailyFetch:
             self.logger.debug(f"Worker {worker}. Downloading {decision_ada}")
 
             # Get basic document info
-            async with session.get(decision_url, auth=AUTH) as response:
-                decision = await response.json()
+            try:
+                async with session.get(decision_url, auth=AUTH) as response:
+                    decision = await response.json()
+            except (ClientPayloadError, ClientConnectorError):
+                self.logger.error(
+                    f"Failed to fetch {decision_ada!r}", exc_info=True,
+                )
+                await self.decision_queue.put((decision_ada, decision_url))
+                continue
 
             # Set export paths
             export_filepath = self.export_dir / decision_ada
@@ -177,16 +184,19 @@ class DiavgeiaDailyFetch:
 
             # Store document
             if "documentUrl" in decision:
-                async with session.get(decision["documentUrl"], auth=AUTH) as response:
-                    try:
+                try:
+                    async with session.get(
+                        decision["documentUrl"], auth=AUTH
+                    ) as response:
                         document = await response.read()
-                    except ClientPayloadError:
-                        self.logger.error(
-                            f"Failed to fetch {decision_ada!r} from "
-                            f"{decision['documentUrl']!r}",
-                            exc_info=True,
-                        )
-                        continue
+                except (ClientPayloadError, ClientConnectorError):
+                    self.logger.error(
+                        f"Failed to fetch {decision_ada!r} from "
+                        f"{decision['documentUrl']!r}",
+                        exc_info=True,
+                    )
+                    await self.decision_queue.put((decision_ada, decision_url))
+                    continue
                 with open(pdf_filepath, "wb") as fout:
                     fout.write(document)
             self.logger.debug(f"Worker {worker}. Downloaded: {decision_ada}")
@@ -250,41 +260,6 @@ def main():
         fetcher.execute()
         date += datetime.timedelta(days=1)
 
-
-# import backoff
-# import requests
-# from requests.auth import HTTPBasicAuth
-# def main2():
-#     auth = HTTPBasicAuth(
-#         username=os.environ["API_USER"], password=os.environ["API_PASSWORD"]
-#     )
-#     # 1975-04-11: 38,343,606 decisions.
-#     # 2010-10-01: 34 decisions.
-#     date = datetime.date(2010, 11, 1)
-#     while True:
-#
-#         from_date = date_str
-#         to_date = (date + datetime.timedelta(days=1)).isoformat()
-#         api_url = "https://diavgeia.gov.gr/opendata/search"
-#
-#         query_size = 500
-#
-#         headers = {"Accept": "application/json", "Connection": "Keep-Alive"}
-#
-#         params = {
-#             "from_date": from_date,
-#             "to_date": to_date,
-#             "size": query_size,
-#             "page": 0,
-#         }
-#         decision_idx = 0
-#         response = requests.get(
-#             api_url, params=params, auth=auth, headers=headers, verify=False
-#         )
-#         print(f"{date_str}: {response.json()['info']['total']:,d} decisions.")
-#
-#         date -= datetime.timedelta(days=1)
-#     pass
 
 if __name__ == "__main__":
     main()
