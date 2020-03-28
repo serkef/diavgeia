@@ -1,7 +1,7 @@
 #!/bin/bash
 
 BUILD_TAG=$(git rev-parse HEAD)
-CRON_CMD='1 0 * * *	docker rm diavgeia-daily; docker run --name diavgeia-daily --env-file='$HOME'/diavgeia/diavgeia/.env --volume='$HOME'/diavgeia/logs:/home/app/logs --restart on-failure diavgeia-daily:'${BUILD_TAG}' --from_date $(date -d "yesterday" -I) --workers 20'
+CRON_CMD='1 0 * * *	docker rm diavgeia-daily; docker run --name diavgeia-daily --rm --env-file='$HOME'/diavgeia/diavgeia/.env --volume='$HOME'/diavgeia/logs:/home/app/logs diavgeia-daily:'${BUILD_TAG}' --from_date $(date -d "yesterday" -I) --workers 20'
 
 
 echo
