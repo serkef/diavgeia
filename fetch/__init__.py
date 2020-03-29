@@ -12,7 +12,12 @@ from tempfile import TemporaryDirectory
 
 import aiohttp
 import urllib3
-from aiohttp import BasicAuth, ClientConnectorError, ClientPayloadError
+from aiohttp import (
+    BasicAuth,
+    ClientConnectorError,
+    ClientPayloadError,
+    ServerDisconnectedError,
+)
 from b2sdk.account_info import InMemoryAccountInfo
 from b2sdk.api import B2Api
 from dotenv import find_dotenv, load_dotenv
@@ -50,6 +55,7 @@ class DiavgeiaDailyFetch:
         self.export_dir = self.export_root / self.date_str
         self.export_archive = self.export_dir.with_suffix(".zip")
         self.decision_queue = None
+        self.session = None
 
     def execute(self):
         """ Runs the pipeline"""
@@ -76,18 +82,18 @@ class DiavgeiaDailyFetch:
         """ Fetches all documents from diavgeia for a given date """
 
         self.decision_queue = asyncio.Queue()
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession() as self.session:
             downloaders = [
-                asyncio.create_task(self.download(str(i), session))
+                asyncio.create_task(self.downloader(str(i)))
                 for i in range(self.workers)
             ]
             await asyncio.gather(
-                asyncio.create_task(self.get_meta(session)),
+                asyncio.create_task(self.get_meta()),
                 *downloaders,
                 asyncio.create_task(self.monitor()),
             )
 
-    async def get_meta(self, session):
+    async def get_meta(self):
         """ Iterates through all decisions of a day """
 
         from_date = self.date_str
@@ -103,7 +109,7 @@ class DiavgeiaDailyFetch:
             "page": 0,
         }
         # Get total number of pages
-        async with session.get(api_url, params=params, auth=AUTH) as res:
+        async with self.session.get(api_url, params=params, auth=AUTH) as res:
             response = await res.json()
         max_page = response["info"]["total"] // response["info"]["size"]
 
@@ -111,35 +117,34 @@ class DiavgeiaDailyFetch:
             params["page"] = page
             self.logger.info(f"Page {params['page']}/{max_page:,d}.")
 
-            async with session.get(api_url, params=params, auth=AUTH) as res:
+            async with self.session.get(api_url, params=params, auth=AUTH) as res:
                 response = await res.json()
 
             for dec in response["decisions"]:
-                await self.decision_queue.put((dec["ada"], dec["url"]))
-        await self.decision_queue.put((None, None))
+                await self.decision_queue.put(dec)
+        await self.decision_queue.put(None)
 
     async def monitor(self):
         """ Monitors progress asynchronously"""
 
         interval = 5
-        remainings = []
+        avg_length = 10
         progresses = []
         last_remaining = 0
 
         while True:
             element = await self.decision_queue.get()
             await self.decision_queue.put(element)
-            if element[0] is None and element[1] is None:
+            if element is None:
                 break
 
             remaining = self.decision_queue.qsize()
             progress = last_remaining - remaining
             last_remaining = remaining
-            remainings.append(remaining)
             progresses.append(progress)
 
-            if len(progresses) > 10:
-                avg = sum(progresses[-10:]) / 10
+            if len(progresses) > avg_length:
+                avg = sum(progresses[-avg_length:]) / avg_length
                 if avg:
                     eta = remaining * interval / avg
                     eta = time.strftime("%H:%M:%S", time.gmtime(eta))
@@ -151,56 +156,56 @@ class DiavgeiaDailyFetch:
             await sleep(interval)
         self.logger.info(f"Shutting down monitor")
 
-    async def download(self, worker, session):
+    async def downloader(self, worker):
         """ Downloads documents from queue in asynchronous manner """
 
         while True:
-            decision_ada, decision_url = await self.decision_queue.get()
-            if decision_ada is None and decision_url is None:
-                await self.decision_queue.put((decision_ada, decision_url))
+            decision = await self.decision_queue.get()
+            if decision is None:
+                await self.decision_queue.put(decision)
                 break
-            self.logger.debug(f"Worker {worker}. Downloading {decision_ada}")
+            self.logger.debug(f"Worker {worker}. Downloading {decision['ada']}")
 
-            # Get basic document info
             try:
-                async with session.get(decision_url, auth=AUTH) as response:
-                    decision = await response.json()
-            except (ClientPayloadError, ClientConnectorError):
-                self.logger.error(
-                    f"Failed to fetch {decision_ada!r}", exc_info=True,
+                await self.download_decision(decision)
+                self.logger.debug(f"Worker {worker}. Downloaded: {decision['ada']}")
+            except (ClientPayloadError, ClientConnectorError, ServerDisconnectedError):
+                self.logger.warning(
+                    f"Failed to fetch {decision['ada']!r}. Will retry later..."
                 )
-                await self.decision_queue.put((decision_ada, decision_url))
+                await self.decision_queue.put(decision)
                 continue
 
-            # Set export paths
-            export_filepath = self.export_dir / decision_ada
-            export_filepath.mkdir(parents=True, exist_ok=True)
-            json_filepath = export_filepath / f"{decision_ada}.json"
-            pdf_filepath = export_filepath / f"{decision_ada}.pdf"
+        self.logger.info(f"Worker {worker}. Shutting down downloader.")
 
-            # Store document info
-            with open(json_filepath, "w") as fout:
-                json.dump(decision, fout, ensure_ascii=False)
+    async def download_decision(self, decision):
+        """ Downloads and stores a decision object to disk """
 
-            # Store document
-            if "documentUrl" in decision:
-                try:
-                    async with session.get(
-                        decision["documentUrl"], auth=AUTH
-                    ) as response:
-                        document = await response.read()
-                except (ClientPayloadError, ClientConnectorError):
-                    self.logger.error(
-                        f"Failed to fetch {decision_ada!r} from "
-                        f"{decision['documentUrl']!r}",
-                        exc_info=True,
-                    )
-                    await self.decision_queue.put((decision_ada, decision_url))
-                    continue
-                with open(pdf_filepath, "wb") as fout:
-                    fout.write(document)
-            self.logger.debug(f"Worker {worker}. Downloaded: {decision_ada}")
-        self.logger.info(f"Worker {worker}. Shutting down downloader")
+        if not decision["documentUrl"]:
+            # In some cases, documentUrl is empty, but querying the specific
+            #  ada, returns more info. Example `ΡΟΗΩ46Ψ8ΧΒ-Ι5Δ`
+            self.logger.warning(f"Extra call for ada {decision['ada']!r}.")
+            async with self.session.get(decision["url"], auth=AUTH) as response:
+                decision = await response.json()
+
+        # Set export paths
+        export_filepath = self.export_dir / decision["ada"]
+        export_filepath.mkdir(parents=True, exist_ok=True)
+        json_filepath = export_filepath / f"{decision['ada']}.json"
+        pdf_filepath = export_filepath / f"{decision['ada']}.pdf"
+
+        # Store document info
+        with open(json_filepath, "w") as fout:
+            json.dump(decision, fout, ensure_ascii=False)
+
+        # Store document
+        if not decision["documentUrl"]:
+            self.logger.warning(f"No document for ada {decision['ada']!r}.")
+            return
+        async with self.session.get(decision["documentUrl"], auth=AUTH) as response:
+            document = await response.read()
+        with open(pdf_filepath, "wb") as fout:
+            fout.write(document)
 
     def upload_to_b2(self):
         """ Uploads a local file to B2 bucket """
