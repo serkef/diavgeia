@@ -164,19 +164,20 @@ class DiavgeiaDailyFetch:
             if decision is None:
                 await self.decision_queue.put(decision)
                 break
-            self.logger.debug(f"Worker {worker}. Downloading {decision['ada']}")
+            self.logger.debug(f"Worker {worker} - Downloading {decision['ada']}")
 
             try:
                 await self.download_decision(decision)
-                self.logger.debug(f"Worker {worker}. Downloaded: {decision['ada']}")
+                self.logger.debug(f"Worker {worker} - Downloaded: {decision['ada']}")
             except (ClientPayloadError, ClientConnectorError, ServerDisconnectedError):
                 self.logger.warning(
+                    f"Worker {worker} - "
                     f"Failed to fetch {decision['ada']!r}. Will retry later..."
                 )
                 await self.decision_queue.put(decision)
                 continue
 
-        self.logger.info(f"Worker {worker}. Shutting down downloader.")
+        self.logger.info(f"Worker {worker} - Shutting down downloader.")
 
     async def download_decision(self, decision):
         """ Downloads and stores a decision object to disk """
@@ -184,7 +185,7 @@ class DiavgeiaDailyFetch:
         if not decision["documentUrl"]:
             # In some cases, documentUrl is empty, but querying the specific
             #  ada, returns more info. Example `ΡΟΗΩ46Ψ8ΧΒ-Ι5Δ`
-            self.logger.warning(f"Extra call for ada {decision['ada']!r}.")
+            self.logger.debug(f"Extra call for ada {decision['ada']!r}.")
             async with self.session.get(decision["url"], auth=AUTH) as response:
                 decision = await response.json()
 
