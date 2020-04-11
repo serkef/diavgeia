@@ -1,9 +1,12 @@
 """ Utilities module """
 
+import json
 import logging
 import os
 from pathlib import Path
+from typing import Dict
 
+import aiofiles
 from dotenv import find_dotenv, load_dotenv
 
 load_dotenv(find_dotenv())
@@ -36,3 +39,11 @@ def get_logger(logger_name: str, log_file: str):
     logger.addHandler(file_handler)
 
     return logger
+
+
+async def save_json(json_obj: Dict, filepath: Path):
+    """ Gets a json obj and saves it to filepath """
+
+    async with aiofiles.open(filepath, "w") as out:
+        await out.write(json.dumps(json_obj, ensure_ascii=False, sort_keys=True))
+        await out.flush()

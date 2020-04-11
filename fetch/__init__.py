@@ -2,7 +2,6 @@
 import argparse
 import asyncio
 import datetime
-import json
 import os
 import time
 from asyncio import sleep
@@ -22,7 +21,7 @@ from b2sdk.account_info import InMemoryAccountInfo
 from b2sdk.api import B2Api
 from dotenv import find_dotenv, load_dotenv
 
-from fetch.utilities import get_logger
+from fetch.utilities import get_logger, save_json
 
 load_dotenv(find_dotenv())
 
@@ -196,8 +195,7 @@ class DiavgeiaDailyFetch:
         pdf_filepath = export_filepath / f"{decision['ada']}.pdf"
 
         # Store document info
-        with open(json_filepath, "w") as fout:
-            json.dump(decision, fout, ensure_ascii=False)
+        await save_json(decision, json_filepath)
 
         # Store document
         if not decision["documentUrl"]:
@@ -249,6 +247,13 @@ def main():
         required=False,
         default=4,
         type=validate_number_of_workers,
+    )
+    parser.add_argument(
+        "--pdf",
+        help="Flag for also downloading pdf document. True|False. Defaults to False",
+        required=False,
+        default=False,
+        type=bool,
     )
     args = parser.parse_args()
 
