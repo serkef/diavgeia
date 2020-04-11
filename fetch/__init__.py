@@ -10,15 +10,12 @@ from shutil import make_archive, rmtree
 from tempfile import TemporaryDirectory
 
 import aiohttp
-import urllib3
 from aiohttp import (
     BasicAuth,
     ClientConnectorError,
     ClientPayloadError,
     ServerDisconnectedError,
 )
-from b2sdk.account_info import InMemoryAccountInfo
-from b2sdk.api import B2Api
 from dotenv import find_dotenv, load_dotenv
 
 from fetch.utilities import get_logger, save_json
@@ -27,13 +24,9 @@ load_dotenv(find_dotenv())
 
 # Basic Configuration
 load_dotenv(find_dotenv())
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Constants
 AUTH = BasicAuth(os.environ["API_USER"], os.environ["API_PASSWORD"])
-BUCKET_NAME = os.environ["BUCKET_NAME"]
-B2_KEY_ID = os.environ["B2_KEY_ID"]
-B2_KEY = os.environ["B2_KEY"]
 
 
 class DiavgeiaDailyFetch:
@@ -71,7 +64,6 @@ class DiavgeiaDailyFetch:
         self.logger.info(f"Compressing finished.")
 
         self.logger.info(f"Uploading archive '{self.export_archive}'...")
-        self.upload_to_b2()
         self.logger.info(f"Upload finished.")
         rmtree(self.export_root)
 
@@ -205,17 +197,6 @@ class DiavgeiaDailyFetch:
             document = await response.read()
         with open(pdf_filepath, "wb") as fout:
             fout.write(document)
-
-    def upload_to_b2(self):
-        """ Uploads a local file to B2 bucket """
-
-        b2_api = B2Api(InMemoryAccountInfo())
-        b2_api.authorize_account("production", B2_KEY_ID, B2_KEY)
-        bucket = b2_api.get_bucket_by_name(BUCKET_NAME)
-
-        remote = f"sink/{self.export_archive.name}"
-        local = self.export_archive
-        bucket.upload_local_file(file_name=remote, local_file=local)
 
 
 def main():
