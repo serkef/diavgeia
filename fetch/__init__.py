@@ -2,12 +2,11 @@
 import argparse
 import asyncio
 import datetime
+import json
 import os
 import time
 from asyncio import sleep
-from pathlib import Path
-from shutil import make_archive, rmtree
-from tempfile import TemporaryDirectory
+from typing import Dict
 
 import aiohttp
 from aiohttp import (
@@ -18,7 +17,7 @@ from aiohttp import (
 )
 from dotenv import find_dotenv, load_dotenv
 
-from fetch.utilities import get_logger, save_json
+from fetch.utilities import EXPORT_DIR, async_save_file, get_logger
 
 load_dotenv(find_dotenv())
 
@@ -27,25 +26,24 @@ load_dotenv(find_dotenv())
 
 # Constants
 AUTH = BasicAuth(os.environ["API_USER"], os.environ["API_PASSWORD"])
+DOWNLOAD_PDF = os.environ["API_USER"] == "True"
 
 
 class DiavgeiaDailyFetch:
     """ Class that fetches diavgeia documents for a day """
 
-    def __init__(self, date: datetime.date, workers: int):
+    def __init__(self, date: datetime.date, nof_workers: int):
         """
         :param date: Date for which documents will be fetched
-        :param workers: Number of concurrent downloads
+        :param nof_workers: Number of concurrent downloads
         """
 
         self.date_str = date.isoformat()
         self.date = date
         log_filename = f"diavgeia.{self.date_str}.log"
         self.logger = get_logger(f"DiavgeiaDailyFetch.{self.date_str}", log_filename)
-        self.workers = workers
-        self.export_root = Path(TemporaryDirectory().name)
-        self.export_dir = self.export_root / self.date_str
-        self.export_archive = self.export_dir.with_suffix(".zip")
+        self.nof_workers = nof_workers
+        self.export_dir = EXPORT_DIR
         self.decision_queue = None
         self.session = None
 
@@ -53,50 +51,35 @@ class DiavgeiaDailyFetch:
         """ Runs the pipeline"""
 
         self.logger.info(f"Fetching all decisions for: {self.date_str!r}...")
-        asyncio.run(self.fetch_daily())
-        self.logger.info(f"Fetching finished.")
-        if not self.export_dir.exists():
-            self.logger.info(f"No data fetched.")
-            return
+        asyncio.run(self.fetch_loop())
+        self.logger.info(f"Fetching finished successfully.")
 
-        self.logger.info(f"Compressing archive '{self.export_dir}'...")
-        make_archive(f"{self.export_dir}", "zip", root_dir=f"{self.export_dir}")
-        self.logger.info(f"Compressing finished.")
-
-        self.logger.info(f"Uploading archive '{self.export_archive}'...")
-        self.logger.info(f"Upload finished.")
-        rmtree(self.export_root)
-
-        self.logger.info(f"Finished successfully.")
-
-    async def fetch_daily(self):
+    async def fetch_loop(self):
         """ Fetches all documents from diavgeia for a given date """
 
         self.decision_queue = asyncio.Queue()
         async with aiohttp.ClientSession() as self.session:
             downloaders = [
                 asyncio.create_task(self.downloader(str(i)))
-                for i in range(self.workers)
+                for i in range(self.nof_workers)
             ]
             await asyncio.gather(
-                asyncio.create_task(self.get_meta()),
+                asyncio.create_task(self.get_decisions()),
                 *downloaders,
                 asyncio.create_task(self.monitor()),
             )
 
-    async def get_meta(self):
+    async def get_decisions(self):
         """ Iterates through all decisions of a day """
 
         from_date = self.date_str
         to_date = (self.date + datetime.timedelta(days=1)).isoformat()
         api_url = "https://diavgeia.gov.gr/opendata/search"
 
-        query_size = 500
-
         params = {
             "from_date": from_date,
             "to_date": to_date,
-            "size": query_size,
+            "size": 500,
             "page": 0,
         }
         # Get total number of pages
@@ -105,15 +88,26 @@ class DiavgeiaDailyFetch:
         max_page = response["info"]["total"] // response["info"]["size"]
 
         for page in range(max_page):
-            params["page"] = page
-            self.logger.info(f"Page {params['page']}/{max_page:,d}.")
+            self.logger.info(f"Page {page}/{max_page:,d}.")
 
+            params["page"] = page
             async with self.session.get(api_url, params=params, auth=AUTH) as res:
                 response = await res.json()
 
             for dec in response["decisions"]:
-                await self.decision_queue.put(dec)
+                await self.crawl_decision(dec)
         await self.decision_queue.put(None)
+
+    async def crawl_decision(self, decision_dict: Dict):
+        """ Gets a decision object (map), crawls additional info and adds it to
+        decision_queue to be downloaded. """
+
+        if not decision_dict["documentUrl"]:
+            # In some cases, documentUrl is empty, but querying the specific
+            #  ada, returns more info. Example `ΡΟΗΩ46Ψ8ΧΒ-Ι5Δ`
+            async with self.session.get(decision_dict["url"], auth=AUTH) as response:
+                decision_dict = await response.json()
+        await self.decision_queue.put(decision_dict)
 
     async def monitor(self):
         """ Monitors progress asynchronously"""
@@ -148,55 +142,46 @@ class DiavgeiaDailyFetch:
         self.logger.info(f"Shutting down monitor")
 
     async def downloader(self, worker):
-        """ Downloads documents from queue in asynchronous manner """
+        """ Downloads decisions from queue in asynchronous manner """
 
         while True:
+            # Check if queue is empty
             decision = await self.decision_queue.get()
             if decision is None:
                 await self.decision_queue.put(decision)
                 break
             self.logger.debug(f"Worker {worker} - Downloading {decision['ada']}")
 
+            # Set export paths
+            doc_url = decision["documentUrl"]
+            ada = decision["ada"]
+            date = datetime.date.fromtimestamp(decision["submissionTimestamp"] // 1000)
+
+            dec_path = self.export_dir / date.isoformat() / ada
+            dec_path.mkdir(parents=True, exist_ok=True)
+            json_filepath = dec_path / f"{ada}.json"
+            pdf_filepath = dec_path / f"{ada}.pdf"
             try:
-                await self.download_decision(decision)
+                # Download decision info
+                json_opts = dict(ensure_ascii=False, sort_keys=True)
+                await async_save_file(
+                    json.dumps(decision, **json_opts).encode("utf-8"), json_filepath,
+                )
+                # Download decision document
+                if not DOWNLOAD_PDF:
+                    continue
+                if not doc_url:
+                    self.logger.warning(f"No document for ada {ada!r}.")
+                    continue
+                async with self.session.get(doc_url, auth=AUTH) as response:
+                    await async_save_file(response.read(), pdf_filepath)
                 self.logger.debug(f"Worker {worker} - Downloaded: {decision['ada']}")
             except (ClientPayloadError, ClientConnectorError, ServerDisconnectedError):
-                self.logger.warning(
-                    f"Worker {worker} - "
-                    f"Failed to fetch {decision['ada']!r}. Will retry later..."
-                )
+                # Put decision back to the queue
                 await self.decision_queue.put(decision)
                 continue
 
         self.logger.info(f"Worker {worker} - Shutting down downloader.")
-
-    async def download_decision(self, decision):
-        """ Downloads and stores a decision object to disk """
-
-        if not decision["documentUrl"]:
-            # In some cases, documentUrl is empty, but querying the specific
-            #  ada, returns more info. Example `ΡΟΗΩ46Ψ8ΧΒ-Ι5Δ`
-            self.logger.debug(f"Extra call for ada {decision['ada']!r}.")
-            async with self.session.get(decision["url"], auth=AUTH) as response:
-                decision = await response.json()
-
-        # Set export paths
-        export_filepath = self.export_dir / decision["ada"]
-        export_filepath.mkdir(parents=True, exist_ok=True)
-        json_filepath = export_filepath / f"{decision['ada']}.json"
-        pdf_filepath = export_filepath / f"{decision['ada']}.pdf"
-
-        # Store document info
-        await save_json(decision, json_filepath)
-
-        # Store document
-        if not decision["documentUrl"]:
-            self.logger.warning(f"No document for ada {decision['ada']!r}.")
-            return
-        async with self.session.get(decision["documentUrl"], auth=AUTH) as response:
-            document = await response.read()
-        with open(pdf_filepath, "wb") as fout:
-            fout.write(document)
 
 
 def main():
