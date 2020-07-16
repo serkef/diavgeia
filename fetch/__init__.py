@@ -28,7 +28,7 @@ load_dotenv(find_dotenv())
 
 # Constants
 AUTH = BasicAuth(os.environ["API_USER"], os.environ["API_PASSWORD"])
-DOWNLOAD_PDF = os.environ["API_USER"] == "True"
+DOWNLOAD_PDF = os.environ["DOWNLOAD_PDF"] == "True"
 
 
 class DiavgeiaDailyFetch:
