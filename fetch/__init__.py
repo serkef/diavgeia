@@ -6,6 +6,8 @@ import json
 import os
 import time
 from asyncio import sleep
+from gzip import compress
+from math import ceil
 from typing import Dict
 
 import aiohttp
@@ -45,6 +47,7 @@ class DiavgeiaDailyFetch:
         self.nof_workers = nof_workers
         self.export_dir = EXPORT_DIR
         self.decision_queue = None
+        self.crawl_queue = None
         self.session = None
 
     def execute(self):
@@ -57,6 +60,7 @@ class DiavgeiaDailyFetch:
     async def fetch_loop(self):
         """ Fetches all documents from diavgeia for a given date """
 
+        self.crawl_queue = asyncio.Queue()
         self.decision_queue = asyncio.Queue()
         async with aiohttp.ClientSession() as self.session:
             downloaders = [
@@ -85,7 +89,7 @@ class DiavgeiaDailyFetch:
         # Get total number of pages
         async with self.session.get(api_url, params=params, auth=AUTH) as res:
             response = await res.json()
-        max_page = response["info"]["total"] // response["info"]["size"]
+        max_page = ceil(response["info"]["total"] / response["info"]["size"])
 
         for page in range(max_page):
             self.logger.info(f"Page {page}/{max_page:,d}.")
@@ -98,16 +102,31 @@ class DiavgeiaDailyFetch:
                 await self.crawl_decision(dec)
         await self.decision_queue.put(None)
 
-    async def crawl_decision(self, decision_dict: Dict):
+    @staticmethod
+    def validate_decision(decision_dict: Dict):
+        """ Validates a decision dictionary contents """
+        if "errorCode" in decision_dict:
+            return False
+        if "ada" not in decision_dict:
+            return False
+        if "documentUrl" not in decision_dict:
+            return False
+        return True
+
+    async def crawl_decision(self, decision_dict: Dict, retry: bool = True):
         """ Gets a decision object (map), crawls additional info and adds it to
         decision_queue to be downloaded. """
 
-        if not decision_dict["documentUrl"]:
+        if not self.validate_decision(decision_dict):
             # In some cases, documentUrl is empty, but querying the specific
             #  ada, returns more info. Example `ΡΟΗΩ46Ψ8ΧΒ-Ι5Δ`
+            self.logger.debug(f"Gor invalid decision. {decision_dict}")
             async with self.session.get(decision_dict["url"], auth=AUTH) as response:
                 decision_dict = await response.json()
-        await self.decision_queue.put(decision_dict)
+            if retry:
+                await self.crawl_decision(decision_dict, retry=False)
+        else:
+            await self.decision_queue.put(decision_dict)
 
     async def monitor(self):
         """ Monitors progress asynchronously"""
@@ -159,13 +178,15 @@ class DiavgeiaDailyFetch:
 
             dec_path = self.export_dir / date.isoformat() / ada
             dec_path.mkdir(parents=True, exist_ok=True)
-            json_filepath = dec_path / f"{ada}.json"
-            pdf_filepath = dec_path / f"{ada}.pdf"
+            json_filepath = dec_path / f"{ada}.json.gz"
+            pdf_filepath = dec_path / f"{ada}.pdf.gz"
+            self.logger.debug(f"Worker {worker} - Downloading {ada}")
             try:
                 # Download decision info
                 json_opts = dict(ensure_ascii=False, sort_keys=True)
                 await async_save_file(
-                    json.dumps(decision, **json_opts).encode("utf-8"), json_filepath,
+                    compress(json.dumps(decision, **json_opts).encode("utf-8")),
+                    json_filepath,
                 )
                 # Download decision document
                 if not DOWNLOAD_PDF:
@@ -174,7 +195,8 @@ class DiavgeiaDailyFetch:
                     self.logger.warning(f"No document for ada {ada!r}.")
                     continue
                 async with self.session.get(doc_url, auth=AUTH) as response:
-                    await async_save_file(response.read(), pdf_filepath)
+                    res = await response.read()
+                    await async_save_file(compress(res), pdf_filepath)
                 self.logger.debug(f"Worker {worker} - Downloaded: {decision['ada']}")
             except (ClientPayloadError, ClientConnectorError, ServerDisconnectedError):
                 # Put decision back to the queue
