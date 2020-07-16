@@ -24,7 +24,8 @@ COPY . .
 RUN poetry install --no-dev --no-interaction
 
 # Set permissions and user
-RUN chown -R ${APP_USER}:${APP_USER} .
+RUN chown -R ${APP_USER}:${APP_USER} . \
+    && chmod +x scripts/entrypoint.sh
 USER ${APP_USER}
 
 # Run
