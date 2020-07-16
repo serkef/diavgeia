@@ -29,5 +29,6 @@ USER ${APP_USER}
 
 # Run
 VOLUME ${LOG_DIR}
-ENTRYPOINT ["diavgeia-daily"]
+
+ENTRYPOINT ["./scripts/entrypoint.sh"]
 CMD []
