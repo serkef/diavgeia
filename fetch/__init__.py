@@ -236,13 +236,6 @@ def main():
         default=4,
         type=validate_number_of_workers,
     )
-    parser.add_argument(
-        "--pdf",
-        help="Flag for also downloading pdf document. True|False. Defaults to False",
-        required=False,
-        default=False,
-        type=bool,
-    )
     args = parser.parse_args()
 
     date = args.from_date
