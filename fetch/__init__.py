@@ -42,7 +42,7 @@ class DiavgeiaDailyFetch:
 
         self.date_str = date.isoformat()
         self.date = date
-        log_filename = f"diavgeia.{self.date_str}.log"
+        log_filename = f"diavgeia.{datetime.datetime.now().isoformat()}.log"
         self.logger = get_logger(f"DiavgeiaDailyFetch.{self.date_str}", log_filename)
         self.nof_workers = nof_workers
         self.export_dir = EXPORT_DIR

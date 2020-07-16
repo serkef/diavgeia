@@ -33,6 +33,7 @@ def get_logger(logger_name: str, log_file: str):
     logger.addHandler(stream_handler)
 
     # Creating and adding the file handler
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     file_handler = logging.FileHandler(LOG_DIR / log_file)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
