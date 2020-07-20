@@ -189,6 +189,7 @@ class DiavgeiaDailyFetch:
             json_filepath = dec_path / f"{ada}.json.gz"
             pdf_filepath = dec_path / f"{ada}.pdf.gz"
             self.logger.debug(f"Worker {worker} - Downloading {ada}")
+            upload_files = []
             try:
                 # Download decision info
                 json_opts = dict(ensure_ascii=False, sort_keys=True)
@@ -199,6 +200,7 @@ class DiavgeiaDailyFetch:
                     ),
                     json_filepath,
                 )
+                upload_files.append(json_filepath)
                 # Download decision document
                 if not DOWNLOAD_PDF:
                     continue
@@ -208,11 +210,12 @@ class DiavgeiaDailyFetch:
                 async with self.session.get(doc_url, auth=AUTH) as response:
                     res = await response.read()
                     await async_save_file(compress(res), pdf_filepath)
+                    upload_files.append(pdf_filepath)
                 self.logger.debug(f"Worker {worker} - Downloaded: {decision['ada']}")
             except (ClientPayloadError, ClientConnectorError, ServerDisconnectedError):
                 # Put decision back to the queue
                 await self.decision_queue.put(decision)
-            await self.upload_to_b2(json_filepath, pdf_filepath)
+            await self.upload_to_b2(*upload_files)
 
         self.logger.info(f"Worker {worker} - Shutting down worker.")
 
