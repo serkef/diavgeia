@@ -8,27 +8,33 @@ import time
 from asyncio import sleep
 from gzip import compress
 from math import ceil
+from pathlib import Path
 from typing import Dict
 
 import aiohttp
+import urllib3
 from aiohttp import (
     BasicAuth,
     ClientConnectorError,
     ClientPayloadError,
     ServerDisconnectedError,
 )
+from b2sdk.account_info import InMemoryAccountInfo
+from b2sdk.api import B2Api
 from dotenv import find_dotenv, load_dotenv
 
-from fetch.utilities import EXPORT_DIR, async_save_file, get_logger
-
-load_dotenv(find_dotenv())
+from fetch.utilities import EXPORT_DIR, async_save_file, get_logger, md5
 
 # Basic Configuration
 load_dotenv(find_dotenv())
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Constants
 AUTH = BasicAuth(os.environ["API_USER"], os.environ["API_PASSWORD"])
 DOWNLOAD_PDF = os.environ["DOWNLOAD_PDF"] == "True"
+BUCKET_NAME = os.environ["BUCKET_NAME"]
+B2_KEY_ID = os.environ["B2_KEY_ID"]
+B2_KEY = os.environ["B2_KEY"]
 
 
 class DiavgeiaDailyFetch:
@@ -49,6 +55,9 @@ class DiavgeiaDailyFetch:
         self.decision_queue = None
         self.crawl_queue = None
         self.session = None
+        b2_api = B2Api(InMemoryAccountInfo())
+        b2_api.authorize_account("production", B2_KEY_ID, B2_KEY)
+        self.bucket = b2_api.get_bucket_by_name(BUCKET_NAME)
 
     def execute(self):
         """ Runs the pipeline"""
@@ -169,7 +178,6 @@ class DiavgeiaDailyFetch:
             if decision is None:
                 await self.decision_queue.put(decision)
                 break
-            self.logger.debug(f"Worker {worker} - Downloading {decision['ada']}")
 
             # Set export paths
             doc_url = decision["documentUrl"]
@@ -185,7 +193,10 @@ class DiavgeiaDailyFetch:
                 # Download decision info
                 json_opts = dict(ensure_ascii=False, sort_keys=True)
                 await async_save_file(
-                    compress(json.dumps(decision, **json_opts).encode("utf-8")),
+                    compress(
+                        json.dumps(decision, **json_opts).encode("utf-8"),
+                        mtime=decision["submissionTimestamp"] // 1000,
+                    ),
                     json_filepath,
                 )
                 # Download decision document
@@ -201,9 +212,24 @@ class DiavgeiaDailyFetch:
             except (ClientPayloadError, ClientConnectorError, ServerDisconnectedError):
                 # Put decision back to the queue
                 await self.decision_queue.put(decision)
-                continue
+            await self.upload_to_b2(json_filepath, pdf_filepath)
 
-        self.logger.info(f"Worker {worker} - Shutting down downloader.")
+        self.logger.info(f"Worker {worker} - Shutting down worker.")
+
+    async def upload_to_b2(self, *files: Path):
+        """ Uploads a local file to B2 bucket """
+
+        for file in files:
+            self.logger.debug(f"Checking previous versions of file {file.name}")
+            cksum = await md5(file)
+            remote = f"sink2/{file.parts[-3]}/{file.parts[-2]}/{file.name}"
+            for version in self.bucket.list_file_versions(remote):
+                if version.content_md5 == cksum:
+                    self.logger.debug(f"File {file.name} exists as {version.id_}")
+                    break
+            else:
+                self.logger.debug(f"Uploading file {file.name}")
+                self.bucket.upload_local_file(file_name=remote, local_file=str(file))
 
 
 def main():

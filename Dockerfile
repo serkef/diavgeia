@@ -12,12 +12,7 @@ RUN mkdir ${LOG_DIR}
 RUN apt-get update \
     && apt-get install -y build-essential vim curl unzip \
     && pip -qq --no-cache-dir install 'poetry==1.0.5' \
-    && poetry config virtualenvs.create false \
-    && curl -O https://downloads.rclone.org/rclone-current-linux-amd64.zip \
-    && unzip rclone-current-linux-amd64.zip \
-    && cd rclone-*-linux-amd64 \
-    && cp rclone /usr/bin/ \
-    && chmod 755 /usr/bin/rclone
+    && poetry config virtualenvs.create false
 
 # Install project & dependencies (check .dockerignore for exceptions)
 COPY . .

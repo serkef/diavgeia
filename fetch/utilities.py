@@ -1,8 +1,9 @@
 """ Utilities module """
-
+import hashlib
 import logging
 import os
 from pathlib import Path
+from typing import Union
 
 import aiofiles
 from dotenv import find_dotenv, load_dotenv
@@ -47,3 +48,12 @@ async def async_save_file(content: bytes, filepath: Path):
     async with aiofiles.open(filepath, "wb") as out:
         await out.write(content)
         await out.flush()
+
+
+async def md5(filepath: Union[str, Path]) -> str:
+    """ Checks the the md5 of a file with asynchronous file read """
+
+    checksum = hashlib.md5()
+    async with aiofiles.open(filepath, mode="rb") as f_in:
+        checksum.update(await f_in.read())
+    return checksum.hexdigest()
