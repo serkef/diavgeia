@@ -3,7 +3,6 @@ import argparse
 import asyncio
 import datetime
 import json
-import os
 import time
 from asyncio import sleep
 from gzip import compress
@@ -12,7 +11,6 @@ from pathlib import Path
 from typing import Dict
 
 import aiohttp
-import urllib3
 from aiohttp import (
     BasicAuth,
     ClientConnectorError,
@@ -21,38 +19,42 @@ from aiohttp import (
 )
 from b2sdk.account_info import InMemoryAccountInfo
 from b2sdk.api import B2Api
-from dotenv import find_dotenv, load_dotenv
 
-from fetch.utilities import EXPORT_DIR, async_save_file, get_logger, md5
+from fetch.utilities import (
+    ASYNC_WORKERS,
+    B2_KEY,
+    B2_KEY_ID,
+    B2_UPLOAD_PATH,
+    BUCKET_NAME,
+    DIAVGEIA_API_PASSWORD,
+    DIAVGEIA_API_USER,
+    DOWNLOAD_PDF,
+    EXPORT_DIR,
+    async_save_file,
+    get_logger,
+    md5,
+)
 
-# Basic Configuration
-load_dotenv(find_dotenv())
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# Constants
-AUTH = BasicAuth(os.environ["API_USER"], os.environ["API_PASSWORD"])
-DOWNLOAD_PDF = os.environ["DOWNLOAD_PDF"] == "True"
-BUCKET_NAME = os.environ["BUCKET_NAME"]
-B2_KEY_ID = os.environ["B2_KEY_ID"]
-B2_KEY = os.environ["B2_KEY"]
+AUTH = BasicAuth(DIAVGEIA_API_USER, DIAVGEIA_API_PASSWORD)
 
 
 class DiavgeiaDailyFetch:
     """ Class that fetches diavgeia documents for a day """
 
-    def __init__(self, date: datetime.date, nof_workers: int):
+    def __init__(self, date: datetime.date):
         """
         :param date: Date for which documents will be fetched
-        :param nof_workers: Number of concurrent downloads
         """
 
         self.date_str = date.isoformat()
         self.date = date
         log_filename = f"diavgeia.{datetime.datetime.now().isoformat()}.log"
         self.logger = get_logger(f"DiavgeiaDailyFetch.{self.date_str}", log_filename)
-        self.nof_workers = nof_workers
+        self.async_workers = ASYNC_WORKERS
         self.export_dir = EXPORT_DIR
         self.decision_queue = None
+        self.upload_queue = None
+        self.upload_path = Path(B2_UPLOAD_PATH)
         self.crawl_queue = None
         self.session = None
         b2_api = B2Api(InMemoryAccountInfo())
@@ -71,14 +73,20 @@ class DiavgeiaDailyFetch:
 
         self.crawl_queue = asyncio.Queue()
         self.decision_queue = asyncio.Queue()
+        self.upload_queue = asyncio.Queue()
         async with aiohttp.ClientSession() as self.session:
             downloaders = [
                 asyncio.create_task(self.downloader(str(i)))
-                for i in range(self.nof_workers)
+                for i in range(self.async_workers)
+            ]
+            uploaders = [
+                asyncio.create_task(self.upload_to_b2(str(i)))
+                for i in range(self.async_workers)
             ]
             await asyncio.gather(
                 asyncio.create_task(self.get_decisions()),
                 *downloaders,
+                *uploaders,
                 asyncio.create_task(self.monitor()),
             )
 
@@ -176,7 +184,8 @@ class DiavgeiaDailyFetch:
             # Check if queue is empty
             decision = await self.decision_queue.get()
             if decision is None:
-                await self.decision_queue.put(decision)
+                await self.decision_queue.put(None)
+                await self.upload_queue.put(None)
                 break
 
             # Set export paths
@@ -189,7 +198,6 @@ class DiavgeiaDailyFetch:
             json_filepath = dec_path / f"{ada}.json.gz"
             pdf_filepath = dec_path / f"{ada}.pdf.gz"
             self.logger.debug(f"Worker {worker} - Downloading {ada}")
-            upload_files = []
             try:
                 # Download decision info
                 json_opts = dict(ensure_ascii=False, sort_keys=True)
@@ -200,7 +208,7 @@ class DiavgeiaDailyFetch:
                     ),
                     json_filepath,
                 )
-                upload_files.append(json_filepath)
+                await self.upload_queue.put(json_filepath)
                 # Download decision document
                 if not DOWNLOAD_PDF:
                     continue
@@ -210,76 +218,54 @@ class DiavgeiaDailyFetch:
                 async with self.session.get(doc_url, auth=AUTH) as response:
                     res = await response.read()
                     await async_save_file(compress(res), pdf_filepath)
-                    upload_files.append(pdf_filepath)
+                    await self.upload_queue.put(pdf_filepath)
                 self.logger.debug(f"Worker {worker} - Downloaded: {decision['ada']}")
             except (ClientPayloadError, ClientConnectorError, ServerDisconnectedError):
                 # Put decision back to the queue
                 await self.decision_queue.put(decision)
-            await self.upload_to_b2(*upload_files)
 
-        self.logger.info(f"Worker {worker} - Shutting down worker.")
+        self.logger.info(f"Worker {worker} - Shutting down downloader.")
 
-    async def upload_to_b2(self, *files: Path):
+    async def upload_to_b2(self, worker):
         """ Uploads a local file to B2 bucket """
 
-        for file in files:
+        while True:
+            # Check if queue is empty
+            file = await self.upload_queue.get()
+            if file is None:
+                await self.decision_queue.put(file)
+                break
+            self.logger.debug(f"Worker {worker} - Uploading {file}")
             self.logger.debug(f"Checking previous versions of file {file.name}")
             cksum = await md5(file)
-            remote = f"sink2/{file.parts[-3]}/{file.parts[-2]}/{file.name}"
-            for version in self.bucket.list_file_versions(remote):
+            remote = self.upload_path / file.parts[-3] / file.parts[-2] / file.name
+            for version in self.bucket.list_file_versions(f"{remote}"):
                 if version.content_md5 == cksum:
                     self.logger.debug(f"File {file.name} exists as {version.id_}")
                     break
             else:
                 self.logger.debug(f"Uploading file {file.name}")
-                self.bucket.upload_local_file(file_name=remote, local_file=str(file))
+                self.bucket.upload_local_file(
+                    file_name=f"{remote}", local_file=str(file)
+                )
 
 
 def main():
     """ Main function """
 
-    def validate_number_of_workers(workers):
-        workers = int(workers)
-        if 1 <= workers <= 100:
-            return workers
-        raise argparse.ArgumentTypeError("Number of workers can be 1-100")
-
     description = ""
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
-        "--from_date",
+        "--date",
         help="Date to fetch documents for. Format: YYYY-MM-DD",
         required=True,
         type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d").date(),
     )
-    parser.add_argument(
-        "--to_date",
-        help="Date to fetch documents for. Format: YYYY-MM-DD",
-        required=False,
-        type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d").date(),
-    )
-    parser.add_argument(
-        "--workers",
-        help="Number of workers (1-100). Defaults to 4.",
-        required=False,
-        default=4,
-        type=validate_number_of_workers,
-    )
     args = parser.parse_args()
 
-    date = args.from_date
-    to_date = args.to_date or date + datetime.timedelta(days=1)
-
-    if date >= to_date:
-        raise ValueError(
-            f"to_date ({date.isoformat()}) is greater or equal "
-            f"than from_date ({to_date.isoformat()})."
-        )
-
-    while date < to_date:
-        fetcher = DiavgeiaDailyFetch(date, args.workers)
-        fetcher.execute()
-        date += datetime.timedelta(days=1)
+    date = args.date
+    fetcher = DiavgeiaDailyFetch(date)
+    fetcher.execute()
 
 
 if __name__ == "__main__":

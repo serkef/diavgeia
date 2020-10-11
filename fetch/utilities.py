@@ -6,9 +6,22 @@ from pathlib import Path
 from typing import Union
 
 import aiofiles
+import urllib3
 from dotenv import find_dotenv, load_dotenv
 
+# Basic Configuration
 load_dotenv(find_dotenv())
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Constants
+DIAVGEIA_API_USER = os.environ["DIAVGEIA_API_USER"]
+DIAVGEIA_API_PASSWORD = os.environ["DIAVGEIA_API_PASSWORD"]
+DOWNLOAD_PDF = os.environ["DOWNLOAD_PDF"] == "True"
+BUCKET_NAME = os.environ["BUCKET_NAME"]
+B2_KEY_ID = os.environ["B2_KEY_ID"]
+B2_KEY = os.environ["B2_KEY"]
+B2_UPLOAD_PATH = os.environ["B2_UPLOAD_PATH"]
+ASYNC_WORKERS = int(os.environ["ASYNC_WORKERS"])
 LOG_DIR = Path(os.environ["LOG_DIR"])
 EXPORT_DIR = Path(os.environ["EXPORT_DIR"])
 
