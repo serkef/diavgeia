@@ -15,6 +15,7 @@ from aiohttp import (
     BasicAuth,
     ClientConnectorError,
     ClientPayloadError,
+    ContentTypeError,
     ServerDisconnectedError,
 )
 from b2sdk.account_info import InMemoryAccountInfo
@@ -105,7 +106,12 @@ class DiavgeiaDailyFetch:
         }
         # Get total number of pages
         async with self.session.get(api_url, params=params, auth=AUTH) as res:
-            response = await res.json()
+            try:
+                response = await res.json()
+            except ContentTypeError:
+                self.logger.info(f"No decisions for {params}")
+                await self.decision_queue.put(None)
+                return
         max_page = ceil(response["info"]["total"] / response["info"]["size"])
 
         for page in range(max_page):
