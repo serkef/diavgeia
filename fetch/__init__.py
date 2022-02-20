@@ -42,9 +42,10 @@ AUTH = BasicAuth(DIAVGEIA_API_USER, DIAVGEIA_API_PASSWORD)
 class DiavgeiaDailyFetch:
     """ Class that fetches diavgeia documents for a day """
 
-    def __init__(self, date: datetime.date):
+    def __init__(self, date: datetime.date, upload: bool):
         """
         :param date: Date for which documents will be fetched
+        :param upload: Boolean for whether to upload to B2
         """
 
         self.date_str = date.isoformat()
@@ -58,9 +59,11 @@ class DiavgeiaDailyFetch:
         self.upload_path = Path(B2_UPLOAD_PATH)
         self.crawl_queue = None
         self.session = None
-        b2_api = B2Api(InMemoryAccountInfo())
-        b2_api.authorize_account("production", B2_KEY_ID, B2_KEY)
-        self.bucket = b2_api.get_bucket_by_name(BUCKET_NAME)
+        self.upload = upload
+        if self.upload:
+            b2_api = B2Api(InMemoryAccountInfo())
+            b2_api.authorize_account("production", B2_KEY_ID, B2_KEY)
+            self.bucket = b2_api.get_bucket_by_name(BUCKET_NAME)
 
     def execute(self):
         """ Runs the pipeline"""
@@ -80,10 +83,13 @@ class DiavgeiaDailyFetch:
                 asyncio.create_task(self.downloader(str(i)))
                 for i in range(self.async_workers)
             ]
-            uploaders = [
-                asyncio.create_task(self.upload_to_b2(str(i)))
-                for i in range(self.async_workers)
-            ]
+            if self.upload:
+                uploaders = [
+                    asyncio.create_task(self.upload_to_b2(str(i)))
+                    for i in range(self.async_workers)
+                ]
+            else:
+                uploaders = [asyncio.create_task(asyncio.sleep(0))]
             await asyncio.gather(
                 asyncio.create_task(self.get_decisions()),
                 *downloaders,
@@ -267,10 +273,16 @@ def main():
         required=True,
         type=lambda d: datetime.datetime.strptime(d, "%Y-%m-%d").date(),
     )
+    parser.add_argument(
+        "--no_upload",
+        help="Flag to control uploading to b2. If ignored, upload is in action.",
+        required=False,
+        action="store_false",
+    )
     args = parser.parse_args()
 
     date = args.date
-    fetcher = DiavgeiaDailyFetch(date)
+    fetcher = DiavgeiaDailyFetch(date, upload=args.no_upload)
     fetcher.execute()
 
 
