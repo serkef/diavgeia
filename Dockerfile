@@ -1,30 +1,21 @@
-FROM python:3.8.1-slim-buster
+FROM python:3.13-slim-bookworm
+COPY --from=ghcr.io/astral-sh/uv:0.8.15 /uv /uvx /bin/
 
-# Setup paths and users
 ENV APP_HOME="/home/app"
 ENV APP_USER="app"
-ENV LOG_DIR=${APP_HOME}/logs
+
+ENV LOG_PATH=${APP_HOME}/logs
+ENV EXPORT_PATH=${APP_HOME}/exports
+
 RUN useradd --create-home ${APP_USER}
-WORKDIR ${APP_HOME}
-RUN mkdir ${LOG_DIR}
-
-# Install system dependencies
-RUN apt-get update \
-    && apt-get install -y build-essential vim curl unzip \
-    && pip -qq --no-cache-dir install 'poetry==1.0.5' \
-    && poetry config virtualenvs.create false
-
-# Install project & dependencies (check .dockerignore for exceptions)
-COPY . .
-RUN poetry install --no-dev --no-interaction
-
-# Set permissions and user
-RUN chown -R ${APP_USER}:${APP_USER} . \
-    && chmod +x scripts/entrypoint.sh
 USER ${APP_USER}
+RUN mkdir -p ${LOG_PATH}
+RUN mkdir -p ${EXPORT_PATH}
 
-# Run
-VOLUME ${LOG_DIR}
+ADD . ${APP_HOME}
+WORKDIR ${APP_HOME}
+RUN uv sync --locked
 
-ENTRYPOINT ["./scripts/entrypoint.sh"]
-CMD []
+VOLUME ${LOG_PATH}
+VOLUME ${EXPORT_PATH}
+ENTRYPOINT ["uv", "run", "src/main.py"]
