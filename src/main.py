@@ -13,9 +13,7 @@ from workers.scheduler import Scheduler
 )
 @click.option("--log-path", type=click.Path(), help="The path for the logs")
 @click.option("--export-path", type=click.Path(), help="The path for all downloads")
-@click.option(
-    "--download-pdf", default=False, type=bool, help="If set to True, download PDFs"
-)
+@click.option("--download-pdf", type=bool, help="If set to True, download PDFs")
 @click.option("--download-workers", type=int, help="Number of download workers")
 @click.option("--daemon-mode", type=bool, help="Run in daemon mode")
 @click.option("--schedule-time", type=str, help="Time to run daily job, eg '04:00')")
