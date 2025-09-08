@@ -1,4 +1,5 @@
 import click
+import datetime as dt
 
 from config.diavgeia_config import DiavgeiaConfig
 from workers.dispatcher import Dispatcher
@@ -7,9 +8,14 @@ from workers.scheduler import Scheduler
 
 @click.command()
 @click.option(
-    "--date-id",
+    "--start-date",
     type=click.DateTime(formats=["%Y-%m-%d"]),
-    help="Date to fetch documents for. Format: YYYY-MM-DD",
+    help="Start date to fetch documents for. Format: YYYY-MM-DD",
+)
+@click.option(
+    "--end-date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    help="End date to fetch documents for. Format: YYYY-MM-DD",
 )
 @click.option("--log-path", type=click.Path(), help="The path for the logs")
 @click.option("--export-path", type=click.Path(), help="The path for all downloads")
@@ -28,13 +34,24 @@ def main(**cli_args):
     cli_args = {k: v for k, v in cli_args.items() if v is not None}
     config = DiavgeiaConfig(**cli_args)
 
-    if config.date_id is None and not config.daemon_mode:
+    if config.start_date is None and not config.daemon_mode:
         raise ValueError(
-            "Either DATE_ID must be provided (--date-id) or DAEMON_MODE (--daemon-mode) must be set"
+            "Either start/end date must be provided or daemon mode must be set"
         )
 
-    if config.date_id is not None:
-        Dispatcher(config).execute()
+    if config.start_date is not None:
+        if config.end_date is None:
+            config = config.model_copy(update={"end_date": config.start_date})
+        dates = (
+            config.start_date + dt.timedelta(days=i)
+            for i in range((config.end_date - config.start_date).days + 1)
+        )
+        for date_id in dates:
+            config = config.model_copy(
+                update={"start_date": date_id, "end_date": date_id}
+            )
+            Dispatcher(config).execute()
+
     elif config.daemon_mode:
         Scheduler(config).start_daemon()
 

@@ -21,7 +21,7 @@ class LoggerMixin:
         if self.__class__.__name__ == "Crawler" and hasattr(self, "worker_id"):
             return f"Diavgeia.{self.worker_id}"
         if self.__class__.__name__ == "Dispatcher":
-            return f"Diavgeia.Dispatcher-{self.config.date_id.strftime('%Y%m%d')}"
+            return f"Diavgeia.Dispatcher-{self.config.start_date.strftime('%Y%m%d')}"
         else:
             return f"Diavgeia.{self.__class__.__name__}"
 

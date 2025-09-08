@@ -19,7 +19,8 @@ class DiavgeiaConfig(BaseSettings):
     export_path: Path
 
     # Date settings
-    date_id: Optional[dt.date] = None
+    start_date: Optional[dt.date] = None
+    end_date: Optional[dt.date] = None
 
     # Logging settings
     log_level: str

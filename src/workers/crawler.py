@@ -43,13 +43,10 @@ class Crawler(LoggerMixin):
         """Crawls Diavgeia API to get all decisions for a day. Adds all decisions to
         the queue for processing by next workers."""
 
-        from_date = self.config.date_id
-        to_date = from_date + dt.timedelta(days=1)
         api_url = "https://diavgeia.gov.gr/opendata/search"
-
         params = {
-            "from_date": from_date.isoformat(),
-            "to_date": to_date.isoformat(),
+            "from_date": self.config.start_date.isoformat(),
+            "to_date": self.config.end_date.isoformat(),
             "size": 500,
             "page": 0,
         }
