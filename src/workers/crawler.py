@@ -22,14 +22,18 @@ class Crawler(LoggerMixin):
     config: DiavgeiaConfig
     queue: Queue
     session: ClientSession
-    id: str
+    worker_id: str
     auth: BasicAuth
 
     def __init__(
-        self, id: str, queue: Queue, session: ClientSession, config: DiavgeiaConfig
+        self,
+        worker_id: str,
+        queue: Queue,
+        session: ClientSession,
+        config: DiavgeiaConfig,
     ):
+        self.worker_id = worker_id
         super().__init__(config)
-        self.id = id
         self.config = config
         self.queue = queue
         self.session = session
@@ -57,7 +61,9 @@ class Crawler(LoggerMixin):
                 self.log(f"No decisions for {params}")
                 await self.queue.put(None)
                 return
-        max_page = ceil(response["info"]["total"] / response["info"]["size"])
+        total = response["info"]["total"]
+        max_page = ceil(total / response["info"]["size"])
+        crawled = 0
 
         for page in range(max_page):
             self.log(f"Crawling page {page}/{max_page:,d}.")
@@ -68,6 +74,13 @@ class Crawler(LoggerMixin):
 
             for dec in response["decisions"]:
                 await self.crawl_decision(dec)
+                crawled += 1
+                if self.config.limit and crawled >= self.config.limit:
+                    self.warn("Reached limit, stopping crawl.")
+                    break
+            if self.config.limit and crawled >= self.config.limit:
+                self.warn("Reached limit, stopping crawl.")
+                break
         await self.queue.put(None)
 
     @staticmethod
@@ -117,7 +130,7 @@ class Crawler(LoggerMixin):
             dec_path.mkdir(parents=True, exist_ok=True)
             json_filepath = dec_path / f"{ada}.json.gz"
             pdf_filepath = dec_path / f"{ada}.pdf.gz"
-            self.debug(f"Worker {self.id} - Downloading {ada}")
+            self.debug(f"Downloading {ada}")
             try:
                 # Download decision info
                 json_opts = dict(ensure_ascii=False, sort_keys=True)
@@ -138,9 +151,9 @@ class Crawler(LoggerMixin):
                 async with self.session.get(doc_url, auth=self.auth) as response:
                     res = await response.read()
                     await save_file(compress(res), pdf_filepath)
-                self.debug(f"Worker {self.id} - Downloaded: {decision['ada']}")
+                self.debug(f"Downloaded: {decision['ada']}")
             except (ClientPayloadError, ClientConnectorError, ServerDisconnectedError):
                 # Put decision back to the queue
                 await self.queue.put(decision)
 
-        self.log(f"Worker {self.id} - Shutting down downloader.")
+        self.log(f"Shutting down downloader.")

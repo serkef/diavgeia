@@ -2,6 +2,7 @@ import click
 
 from config.diavgeia_config import DiavgeiaConfig
 from workers.dispatcher import Dispatcher
+from workers.scheduler import Scheduler
 
 
 @click.command()
@@ -14,7 +15,6 @@ from workers.dispatcher import Dispatcher
 @click.option("--log-path", type=click.Path(), help="Override log path")
 @click.option("--export-path", type=click.Path(), help="Override export path")
 @click.option("--download-pdf", type=bool, help="Override download_pdf setting")
-@click.option("--crawl-workers", type=int, help="Override crawl_workers setting")
 @click.option("--download-workers", type=int, help="Override download_workers setting")
 @click.option(
     "--log-level",
