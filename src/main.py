@@ -52,7 +52,7 @@ def main(**cli_args):
             )
             Dispatcher(config).execute()
 
-    elif config.daemon_mode:
+    if config.daemon_mode:
         Scheduler(config).start_daemon()
 
 
