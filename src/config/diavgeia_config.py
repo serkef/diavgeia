@@ -10,7 +10,6 @@ class DiavgeiaConfig(BaseSettings):
     diavgeia_api_password: str
 
     # Worker settings
-    crawl_workers: int
     download_workers: int
     download_pdf: bool
 
@@ -23,6 +22,9 @@ class DiavgeiaConfig(BaseSettings):
 
     # Logging settings
     log_level: str
+
+    # Debug settings
+    limit: Optional[int] = None  # Limit number of documents to fetch for debugging
 
     model_config = {
         "env_file": Path(__file__).parent.parent.parent / ".env",

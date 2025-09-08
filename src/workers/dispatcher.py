@@ -29,18 +29,17 @@ class Dispatcher(LoggerMixin):
             crawlers = [
                 asyncio.create_task(
                     Crawler(
-                        id=f"crawler-{id_}",
+                        worker_id=f"Crawler-{self.config.date_id.strftime('%Y%m%d')}",
                         queue=queue,
                         session=session,
                         config=self.config,
                     ).crawl()
                 )
-                for id_ in range(self.config.crawl_workers)
             ]
             downloaders = [
                 asyncio.create_task(
                     Crawler(
-                        id=f"downloader-{id_}",
+                        worker_id=f"Downloader-{self.config.date_id.strftime('%Y%m%d')}-{id_}",
                         queue=queue,
                         session=session,
                         config=self.config,

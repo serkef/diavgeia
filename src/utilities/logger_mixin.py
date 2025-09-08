@@ -11,8 +11,18 @@ class LoggerMixin:
 
     def __init__(self, config: DiavgeiaConfig):
         self.config = config
-        logger_name = f"DiavgeiaDailyFetch.{self.__class__.__name__}.{config.date_id}"
-        self.logger = self.get_logger(logger_name, self._log_filename)
+        self.logger = self.get_logger(self.logger_name, self._log_filename)
+
+    @property
+    def logger_name(self) -> str:
+        if self.__class__.__name__ == "Scheduler":
+            return f"DiavgeiaDailyFetch.Scheduler"
+        if self.__class__.__name__ == "Crawler" and hasattr(self, "worker_id"):
+            return f"DiavgeiaDailyFetch.{self.worker_id}"
+        if self.__class__.__name__ == "Dispatcher":
+            return f"DiavgeiaDailyFetch.Dispatcher-{self.config.date_id.strftime('%Y%m%d')}"
+        else:
+            return f"DiavgeiaDailyFetch.{self.__class__.__name__}"
 
     def log(self, msg: str):
         self.logger.info(msg)
