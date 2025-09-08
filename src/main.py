@@ -47,10 +47,10 @@ def main(**cli_args):
             for i in range((config.end_date - config.start_date).days + 1)
         )
         for date_id in dates:
-            config = config.model_copy(
+            dispatch_config = config.model_copy(
                 update={"start_date": date_id, "end_date": date_id}
             )
-            Dispatcher(config).execute()
+            Dispatcher(dispatch_config).execute()
 
     if config.daemon_mode:
         Scheduler(config).start_daemon()
