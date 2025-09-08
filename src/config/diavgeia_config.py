@@ -1,5 +1,6 @@
 import datetime as dt
 from pathlib import Path
+from typing import Optional
 
 from pydantic_settings import BaseSettings
 
@@ -18,10 +19,15 @@ class DiavgeiaConfig(BaseSettings):
     export_path: Path
 
     # Date settings
-    date_id: dt.date
+    date_id: Optional[dt.date] = None
 
     # Logging settings
     log_level: str
+
+    # Scheduler settings
+    daemon_mode: bool = False
+    schedule_time: str = "04:00"
+    schedule_timezone: str = "UTC"
 
     # Debug settings
     limit: Optional[int] = None  # Limit number of documents to fetch for debugging

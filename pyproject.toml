@@ -9,6 +9,8 @@ dependencies = [
     "aiohttp>=3.12.15",
     "click>=8.2.1",
     "pydantic-settings>=2.10.1",
+    "pytz>=2025.2",
+    "schedule>=1.2.2",
     "urllib3>=2.5.0",
 ]
 
