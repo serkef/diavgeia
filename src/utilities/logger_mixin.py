@@ -1,5 +1,6 @@
 import datetime as dt
 import logging
+from logging.handlers import RotatingFileHandler
 
 from config.diavgeia_config import DiavgeiaConfig
 
@@ -16,13 +17,13 @@ class LoggerMixin:
     @property
     def logger_name(self) -> str:
         if self.__class__.__name__ == "Scheduler":
-            return f"DiavgeiaDailyFetch.Scheduler"
+            return f"Diavgeia.Scheduler"
         if self.__class__.__name__ == "Crawler" and hasattr(self, "worker_id"):
-            return f"DiavgeiaDailyFetch.{self.worker_id}"
+            return f"Diavgeia.{self.worker_id}"
         if self.__class__.__name__ == "Dispatcher":
-            return f"DiavgeiaDailyFetch.Dispatcher-{self.config.date_id.strftime('%Y%m%d')}"
+            return f"Diavgeia.Dispatcher-{self.config.date_id.strftime('%Y%m%d')}"
         else:
-            return f"DiavgeiaDailyFetch.{self.__class__.__name__}"
+            return f"Diavgeia.{self.__class__.__name__}"
 
     def log(self, msg: str):
         self.logger.info(msg)
@@ -52,9 +53,13 @@ class LoggerMixin:
         stream_handler.setFormatter(formatter)
         logger.addHandler(stream_handler)
 
-        # file handler
+        # file handler with rotation - 50MB per file, keep 5 backups
         self.config.log_path.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(self.config.log_path / log_file)
+        file_handler = RotatingFileHandler(
+            self.config.log_path / log_file,
+            maxBytes=50 * 1024 * 1024,
+            backupCount=5,
+        )
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
