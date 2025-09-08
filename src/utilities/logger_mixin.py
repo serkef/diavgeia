@@ -50,6 +50,7 @@ class LoggerMixin:
 
         # stream handler
         stream_handler = logging.StreamHandler()
+        stream_handler.setLevel(self.config.log_level)
         stream_handler.setFormatter(formatter)
         logger.addHandler(stream_handler)
 
@@ -60,6 +61,7 @@ class LoggerMixin:
             maxBytes=50 * 1024 * 1024,
             backupCount=5,
         )
+        file_handler.setLevel(self.config.log_level)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 

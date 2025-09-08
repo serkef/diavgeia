@@ -46,7 +46,7 @@ class Crawler(LoggerMixin):
         api_url = "https://diavgeia.gov.gr/opendata/search"
         params = {
             "from_date": self.config.start_date.isoformat(),
-            "to_date": self.config.end_date.isoformat(),
+            "to_date": (self.config.end_date + dt.timedelta(days=1)).isoformat(),
             "size": 500,
             "page": 0,
         }
