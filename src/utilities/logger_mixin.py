@@ -20,9 +20,10 @@ class LoggerMixin:
             return f"Diavgeia.Scheduler"
         if self.__class__.__name__ == "Crawler" and hasattr(self, "worker_id"):
             return f"Diavgeia.{self.worker_id}"
-        if self.__class__.__name__ == "Dispatcher" and self.config.start_date:
+        if self.__class__.__name__ == "Dispatcher":
             return f"Diavgeia.Dispatcher-{self.config.start_date.strftime('%Y%m%d')}"
-        return f"Diavgeia.{self.__class__.__name__}"
+        else:
+            return f"Diavgeia.{self.__class__.__name__}"
 
     def log(self, msg: str):
         self.logger.info(msg)
