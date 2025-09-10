@@ -50,7 +50,7 @@ class Scheduler(LoggerMixin):
     def _run_daily_job(self):
         self.log("Scheduler triggered daily job.")
         yesterday = (dt.datetime.now(dt.UTC) - dt.timedelta(days=1)).date()
-        config = self.config.model_copy(update={"date_id": yesterday})
+        config = self.config.model_copy(update={"start_date": yesterday, "end_date": yesterday})
         try:
             Dispatcher(config=config).execute()
             self.log("Scheduler finished daily job successfully.")
